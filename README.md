@@ -9,7 +9,7 @@ omp::parallel_for(arr.begin(), arr.end(), [&named_section](double& element, std:
 {
   element = (index + 1);
 
-  omp::critical(named_section, [index]()
+  omp::critical(named_section, []()
   {
 
   });

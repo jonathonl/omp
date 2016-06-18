@@ -10,7 +10,7 @@ int main()
   {
     element = (index + 1);
 
-    omp::critical(named_section, [index]()
+    omp::critical(named_section, []()
     {
 
     });
