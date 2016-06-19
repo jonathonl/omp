@@ -1,7 +1,7 @@
 # omp
 A parallel programming library that mimics OpenMP syntax.
 
-# Parallel For Example
+## Parallel For Example
 ```c++
 std::vector<double> arr(256, 0.0);
 std::mutex named_section;
@@ -27,7 +27,7 @@ omp::parallel_for(arr.begin(), arr.end(), [&named_section](double& element, std:
 });
 ```
 
-#Parallel Example
+## Parallel Example
 ```c++
 unsigned num_threads = 8;
 omp::parallel([]()
