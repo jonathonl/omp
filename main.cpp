@@ -26,5 +26,11 @@ int main()
     });
   });
 
+  unsigned num_threads = 8;
+  omp::parallel([]()
+  {
+
+  }, num_threads);
+
   return 0;
 }
