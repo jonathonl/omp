@@ -1,18 +1,20 @@
 
 #include "omp.hpp"
+#include <iostream>
 
 int main()
 {
-  std::vector<double> arr(256, 0.0);
+  std::vector<double> arr(257, 0.0);
   std::mutex named_section;
+  std::size_t total = 0;
 
-  omp::parallel_for(arr.begin(), arr.end(), [&named_section](double& element, std::size_t index)
+  omp::parallel_for(omp::static_schedule(6), arr.begin(), arr.end(), [&total, &named_section](double& element, std::size_t index)
   {
     element = (index + 1);
 
-    omp::critical(named_section, []()
+    omp::critical(named_section, [&total, element]()
     {
-
+      ++total;
     });
 
     {
@@ -24,7 +26,9 @@ int main()
     {
 
     });
-  });
+  }, 8);
+
+  std::cout << total << std::endl;
 
   unsigned num_threads = 8;
   omp::parallel([]()
