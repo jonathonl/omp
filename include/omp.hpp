@@ -20,26 +20,18 @@ namespace omp
     class thread_pool
     {
     public:
-      thread_pool(const std::function<void()>& fn, unsigned num_threads = 0)
+      thread_pool(const std::function<void()>& fn, unsigned num_threads = 0) :
+        num_threads_(num_threads ? num_threads : default_num_threads)
       {
-        if (!num_threads)
-          num_threads = std::thread::hardware_concurrency();
-
-        if (!num_threads)
-          num_threads = 1;
-
-        threads_.reserve(num_threads);
-        for (unsigned i = 0; i < num_threads; ++i)
+        threads_.reserve(num_threads - 1);
+        for (unsigned i = 0; i < (num_threads_ - 1); ++i)
           threads_.emplace_back(fn);
-      }
-
-      void wait()
-      {
+        fn();
         for (auto it = threads_.begin(); it != threads_.end(); ++it)
           it->join();
       }
-
     private:
+      const std::size_t num_threads_;
       std::vector<std::thread> threads_;
     };
 
@@ -52,18 +44,14 @@ namespace omp
         cur_(begin),
         end_(end),
         index_(0),
-        chunk_size_(chunk_size ? chunk_size : 1)
+        chunk_size_(chunk_size ? chunk_size : 1),
+        num_threads_(num_threads ? num_threads : default_num_threads)
       {
-        if (!num_threads)
-          num_threads = default_num_threads;
-
-        threads_.reserve(num_threads);
-        for (unsigned i = 0; i < num_threads; ++i)
+        threads_.reserve(num_threads_ - 1);
+        for (unsigned i = 0; i < (num_threads_ - 1); ++i)
           threads_.emplace_back(std::bind(&dynamic_iterator_thread_pool::routine, this));
-      }
+        this->routine();
 
-      void wait()
-      {
         for (auto it = threads_.begin(); it != threads_.end(); ++it)
           it->join();
       }
@@ -76,6 +64,7 @@ namespace omp
       std::size_t index_;
       std::mutex mtx_;
       const std::size_t chunk_size_;
+      const std::size_t num_threads_;
 
       void routine()
       {
@@ -116,39 +105,35 @@ namespace omp
     public:
       static_iterator_thread_pool(std::size_t chunk_size, Iter begin, Iter end, const std::function<void(typename Iter::reference,std::size_t)>& fn, unsigned num_threads = 0) :
         fn_(fn),
+        num_threads_(num_threads ? num_threads : default_num_threads),
         beg_(begin),
         end_(end),
         total_elements_(std::distance(beg_, end_)),
-        chunk_size_(chunk_size ? chunk_size : static_cast<std::size_t>(total_elements_) / (num_threads ? num_threads : default_num_threads))
+        chunk_size_(chunk_size ? chunk_size : static_cast<std::size_t>(total_elements_) / num_threads_)
       {
-        if (!num_threads)
-          num_threads = default_num_threads;
+        threads_.reserve(num_threads_ - 1);
+        for (unsigned i = 0; i < (num_threads_ - 1); ++i)
+          threads_.emplace_back(std::bind(&static_iterator_thread_pool::routine, this, i));
+        this->routine(num_threads_ - 1);
 
-        threads_.reserve(num_threads);
-        for (unsigned i = 0; i < num_threads; ++i)
-          threads_.emplace_back(std::bind(&static_iterator_thread_pool::routine, this, i, num_threads));
-      }
-
-      void wait()
-      {
         for (auto it = threads_.begin(); it != threads_.end(); ++it)
           it->join();
       }
-
     private:
       std::function<void(typename Iter::reference, std::size_t)> fn_;
+      const std::size_t num_threads_;
       std::vector<std::thread> threads_;
       const Iter beg_;
       const Iter end_;
       long total_elements_;
       const std::size_t chunk_size_;
 
-      void routine(std::size_t thread_index, std::size_t num_threads)
+      void routine(std::size_t thread_index)
       {
         auto cur = beg_;
 
         std::advance(cur, thread_index * chunk_size_);
-        for (std::size_t index = (thread_index * chunk_size_); index < total_elements_; index += (chunk_size_ * num_threads - chunk_size_), std::advance(cur, chunk_size_ * num_threads - chunk_size_))
+        for (std::size_t index = (thread_index * chunk_size_); index < total_elements_; index += (chunk_size_ * num_threads_ - chunk_size_), std::advance(cur, chunk_size_ * num_threads_ - chunk_size_))
         {
           for (std::size_t chunk_offset = 0; chunk_offset < chunk_size_ && index < total_elements_; ++chunk_offset)
           {
@@ -157,7 +142,6 @@ namespace omp
             ++cur;
             ++index;
           }
-
         }
       }
     };
@@ -190,14 +174,12 @@ namespace omp
   void parallel_for(const dynamic_schedule& sched, Iterator begin, Iterator end, const std::function<void(typename Iterator::reference, std::size_t)>& operation, unsigned thread_cnt = 0)
   {
     internal::dynamic_iterator_thread_pool<Iterator> pool(sched.chunk_size(), begin, end, operation, thread_cnt);
-    pool.wait();
   }
 
   template <typename Iterator>
   void parallel_for(const static_schedule& sched, Iterator begin, Iterator end, const std::function<void(typename Iterator::reference, std::size_t)>& operation, unsigned thread_cnt = 0)
   {
     internal::static_iterator_thread_pool<Iterator> pool(sched.chunk_size(), begin, end, operation, thread_cnt);
-    pool.wait();
   }
 
   template <typename Iterator>

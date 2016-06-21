@@ -8,7 +8,7 @@ int main()
   std::mutex named_section;
   std::size_t total = 0;
 
-  omp::parallel_for(omp::static_schedule(6), arr.begin(), arr.end(), [&total, &named_section](double& element, std::size_t index)
+  omp::parallel_for(omp::static_schedule(), arr.begin(), arr.end(), [&total, &named_section](double& element, std::size_t index)
   {
     element = (index + 1);
 
