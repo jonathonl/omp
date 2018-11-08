@@ -8,3 +8,8 @@ add_library(omp src/omp.cpp include/omp.hpp)
 
 add_executable(omp-test main.cpp)
 target_link_libraries(omp-test omp)
+
+install(FILES include/omp.hpp DESTINATION include)
+install(TARGETS omp
+        LIBRARY DESTINATION lib
+        ARCHIVE DESTINATION lib)
