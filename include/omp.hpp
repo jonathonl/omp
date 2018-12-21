@@ -80,7 +80,7 @@ namespace omp
         bool done = false;
         while (!done)
         {
-          std::vector<Iter> chunk(chunk_size_); // TODO: This seems wasteful.
+          std::vector<Iter> chunk(chunk_size_);
 
           std::unique_lock<std::mutex> lk(mtx_);
           std::size_t index = index_;
