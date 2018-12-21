@@ -8,6 +8,7 @@
 #include <thread>
 #include <mutex>
 #include <assert.h>
+#include <iterator>
 
 
 namespace omp
@@ -71,7 +72,7 @@ namespace omp
         bool done = false;
         while (!done)
         {
-          std::vector<Iter> chunk(chunk_size_);
+          std::vector<Iter> chunk(chunk_size_); // TODO: This seems wasteful.
 
           std::unique_lock<std::mutex> lk(mtx_);
           std::size_t index = index_;
@@ -146,6 +147,60 @@ namespace omp
       }
     };
   }
+
+  class sequence_iterator
+  {
+  public:
+    typedef sequence_iterator self_type;
+    typedef int difference_type;
+    typedef int value_type;
+    typedef value_type& reference;
+    typedef value_type* pointer;
+    typedef std::random_access_iterator_tag iterator_category;
+
+    sequence_iterator() : val_(0) {}
+    sequence_iterator(value_type val) :
+      val_(val)
+    {
+
+    }
+
+
+    //reference          operator [] (difference_type);
+    bool operator < (const self_type& other) { return val_ < other.val_; }
+    bool operator > (const self_type& other) { return val_ > other.val_; }
+    bool operator <= (const self_type& other) { return val_ <= other.val_; }
+    bool operator >= (const self_type& other) { return val_ >= other.val_; }
+
+    self_type operator++()
+    {
+      self_type ret = *this;
+      ++val_;
+      return ret;
+    }
+
+    self_type operator--()
+    {
+      self_type ret = *this;
+      --val_;
+      return ret;
+    }
+
+    self_type&      operator += (difference_type i)  { val_ += i; return *this; }
+    self_type&      operator -= (difference_type i)  { val_ -= i; return *this; }
+    self_type       operator +  (difference_type i) { return self_type(val_ + i); }
+    self_type       operator -  (difference_type i) { return self_type(val_ - i); }
+    difference_type operator - (const self_type& other) { return val_ - other.val_; }
+
+    void operator++(int) { ++val_; }
+    void operator--(int) { --val_; }
+    reference operator*() { return val_; }
+    pointer operator->() { return &val_; }
+    bool operator==(const self_type& rhs) const { return (val_ == rhs.val_); }
+    bool operator!=(const self_type& rhs) const { return (val_ != rhs.val_); }
+  private:
+    value_type val_;
+  };
 
   class schedule
   {

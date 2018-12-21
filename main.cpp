@@ -1,6 +1,7 @@
 
 #include "omp.hpp"
 #include <iostream>
+#include <cassert>
 
 int main()
 {
@@ -28,7 +29,14 @@ int main()
     });
   }, 8);
 
+  omp::parallel_for(omp::dynamic_schedule(), omp::sequence_iterator(-2), omp::sequence_iterator(5), [&total, &named_section](int& element, std::size_t index)
+  {
+    std::lock_guard<std::mutex> critical(named_section);
+    ++total;
+  }, 3);
+
   std::cout << total << std::endl;
+  assert(total == 264);
 
   unsigned num_threads = 8;
   omp::parallel([]()
