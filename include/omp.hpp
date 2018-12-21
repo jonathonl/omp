@@ -4,15 +4,23 @@
 
 #include <cstdint>
 #include <functional>
-#include <vector>
 #include <thread>
+#include <vector>
 #include <mutex>
-#include <assert.h>
+#include <cassert>
 #include <iterator>
 
 
 namespace omp
 {
+
+
+  struct iteration_context
+  {
+    std::size_t thread_index;
+    std::size_t index;
+  };
+
   namespace internal
   {
     extern std::mutex global_mutex;
@@ -21,13 +29,13 @@ namespace omp
     class thread_pool
     {
     public:
-      thread_pool(const std::function<void()>& fn, unsigned num_threads = 0) :
+      thread_pool(const std::function<void(std::size_t thread_idx)>& fn, unsigned num_threads = 0) :
         num_threads_(num_threads ? num_threads : default_num_threads)
       {
         threads_.reserve(num_threads - 1);
         for (unsigned i = 0; i < (num_threads_ - 1); ++i)
-          threads_.emplace_back(fn);
-        fn();
+          threads_.emplace_back(fn, i);
+        fn(num_threads_ - 1);
         for (auto it = threads_.begin(); it != threads_.end(); ++it)
           it->join();
       }
@@ -40,7 +48,7 @@ namespace omp
     class dynamic_iterator_thread_pool
     {
     public:
-      dynamic_iterator_thread_pool(std::size_t chunk_size, Iter begin, Iter end, const std::function<void(typename Iter::reference,std::size_t)>& fn, unsigned num_threads) :
+      dynamic_iterator_thread_pool(std::size_t chunk_size, Iter begin, Iter end, const std::function<void(typename Iter::reference, const iteration_context&)>& fn, unsigned num_threads) :
         fn_(fn),
         cur_(begin),
         end_(end),
@@ -50,15 +58,15 @@ namespace omp
       {
         threads_.reserve(num_threads_ - 1);
         for (unsigned i = 0; i < (num_threads_ - 1); ++i)
-          threads_.emplace_back(std::bind(&dynamic_iterator_thread_pool::routine, this));
-        this->routine();
+          threads_.emplace_back(std::bind(&dynamic_iterator_thread_pool::routine, this, i));
+        this->routine(num_threads_ - 1);
 
         for (auto it = threads_.begin(); it != threads_.end(); ++it)
           it->join();
       }
 
     private:
-      std::function<void(typename Iter::reference, std::size_t)> fn_;
+      std::function<void(typename Iter::reference, const omp::iteration_context&)> fn_;
       std::vector<std::thread> threads_;
       Iter cur_;
       const Iter end_;
@@ -67,7 +75,7 @@ namespace omp
       const std::size_t chunk_size_;
       const std::size_t num_threads_;
 
-      void routine()
+      void routine(std::size_t thread_index)
       {
         bool done = false;
         while (!done)
@@ -93,7 +101,7 @@ namespace omp
             }
             else
             {
-              fn_(*chunk[chunk_offset], index + chunk_offset); //fn_ ? fn_(*it, i) : void();
+              fn_(*chunk[chunk_offset], {thread_index, index + chunk_offset}); //fn_ ? fn_(*it, i) : void();
             }
           }
         }
@@ -104,7 +112,7 @@ namespace omp
     class static_iterator_thread_pool
     {
     public:
-      static_iterator_thread_pool(std::size_t chunk_size, Iter begin, Iter end, const std::function<void(typename Iter::reference,std::size_t)>& fn, unsigned num_threads = 0) :
+      static_iterator_thread_pool(std::size_t chunk_size, Iter begin, Iter end, const std::function<void(typename Iter::reference,const iteration_context&)>& fn, unsigned num_threads = 0) :
         fn_(fn),
         num_threads_(num_threads ? num_threads : default_num_threads),
         beg_(begin),
@@ -121,7 +129,7 @@ namespace omp
           it->join();
       }
     private:
-      std::function<void(typename Iter::reference, std::size_t)> fn_;
+      std::function<void(typename Iter::reference, const omp::iteration_context&)> fn_;
       const std::size_t num_threads_;
       std::vector<std::thread> threads_;
       const Iter beg_;
@@ -139,7 +147,7 @@ namespace omp
           for (std::size_t chunk_offset = 0; chunk_offset < chunk_size_ && index < total_elements_; ++chunk_offset)
           {
             assert(cur != end_);
-            fn_(*cur, index); //fn_ ? fn_(*it, i) : void();
+            fn_(*cur, {thread_index,index}); //fn_ ? fn_(*it, i) : void();
             ++cur;
             ++index;
           }
@@ -223,22 +231,22 @@ namespace omp
     static_schedule(std::size_t chunk_size = 0);
   };
 
-  void parallel(const std::function<void()>& operation, unsigned thread_cnt = 0);
+  void parallel(const std::function<void(std::size_t)>& operation, unsigned thread_cnt = 0);
 
   template <typename Iterator>
-  void parallel_for(const dynamic_schedule& sched, Iterator begin, Iterator end, const std::function<void(typename Iterator::reference, std::size_t)>& operation, unsigned thread_cnt = 0)
+  void parallel_for(const dynamic_schedule& sched, Iterator begin, Iterator end, const std::function<void(typename Iterator::reference, const iteration_context&)>& operation, unsigned thread_cnt = 0)
   {
     internal::dynamic_iterator_thread_pool<Iterator> pool(sched.chunk_size(), begin, end, operation, thread_cnt);
   }
 
   template <typename Iterator>
-  void parallel_for(const static_schedule& sched, Iterator begin, Iterator end, const std::function<void(typename Iterator::reference, std::size_t)>& operation, unsigned thread_cnt = 0)
+  void parallel_for(const static_schedule& sched, Iterator begin, Iterator end, const std::function<void(typename Iterator::reference, const iteration_context&)>& operation, unsigned thread_cnt = 0)
   {
     internal::static_iterator_thread_pool<Iterator> pool(sched.chunk_size(), begin, end, operation, thread_cnt);
   }
 
   template <typename Iterator>
-  void parallel_for(Iterator begin, Iterator end, const std::function<void(typename Iterator::reference, std::size_t)>& operation, unsigned thread_cnt = 0)
+  void parallel_for(Iterator begin, Iterator end, const std::function<void(typename Iterator::reference, const iteration_context&)>& operation, unsigned thread_cnt = 0)
   {
     parallel_for(static_schedule(), begin, end, operation, thread_cnt);
   }

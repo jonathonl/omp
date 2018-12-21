@@ -30,7 +30,7 @@ namespace omp
   {
   }
 
-  void parallel(const std::function<void()>& operation, unsigned thread_cnt)
+  void parallel(const std::function<void(std::size_t)>& operation, unsigned thread_cnt)
   {
     internal::thread_pool pool(operation, thread_cnt);
   }

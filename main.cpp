@@ -9,11 +9,11 @@ int main()
   std::mutex named_section;
   std::size_t total = 0;
 
-  omp::parallel_for(omp::static_schedule(), arr.begin(), arr.end(), [&total, &named_section](double& element, std::size_t index)
+  omp::parallel_for(omp::static_schedule(), arr.begin(), arr.end(), [&total, &named_section](double& element, const omp::iteration_context& ctx)
   {
-    element = (index + 1);
+    element = (ctx.index + 1);
 
-    omp::critical(named_section, [&total, element]()
+    omp::critical(named_section, [&total, element, &ctx]()
     {
       ++total;
     });
@@ -29,7 +29,7 @@ int main()
     });
   }, 8);
 
-  omp::parallel_for(omp::dynamic_schedule(), omp::sequence_iterator(-2), omp::sequence_iterator(5), [&total, &named_section](int& element, std::size_t index)
+  omp::parallel_for(omp::dynamic_schedule(), omp::sequence_iterator(-2), omp::sequence_iterator(5), [&total, &named_section](int& element, const omp::iteration_context& ctx)
   {
     std::lock_guard<std::mutex> critical(named_section);
     ++total;
@@ -39,7 +39,7 @@ int main()
   assert(total == 264);
 
   unsigned num_threads = 8;
-  omp::parallel([]()
+  omp::parallel([](std::size_t thread_idx)
   {
 
   }, num_threads);
