@@ -10,7 +10,7 @@
 #include <condition_variable>
 #include <cassert>
 #include <iterator>
-
+#include <algorithm>
 
 namespace omp
 {
