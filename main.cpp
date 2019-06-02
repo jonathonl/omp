@@ -9,7 +9,8 @@ int main()
   std::mutex named_section;
   std::size_t total = 0;
 
-  omp::parallel_for(omp::static_schedule(), arr.begin(), arr.end(), [&total, &named_section](double& element, const omp::iteration_context& ctx)
+  omp::internal::thread_pool2 pool(8);
+  omp::parallel_for_exp(omp::static_schedule(), arr.begin(), arr.end(), [&total, &named_section](double& element, const omp::iteration_context& ctx)
   {
     element = (ctx.index + 1);
 
@@ -27,7 +28,7 @@ int main()
     {
 
     });
-  }, 8);
+  }, pool); // 8);
 
   omp::parallel_for(omp::dynamic_schedule(), omp::sequence_iterator(-2), omp::sequence_iterator(5), [&total, &named_section](int& element, const omp::iteration_context& ctx)
   {
@@ -44,5 +45,5 @@ int main()
 
   }, num_threads);
 
-  return 0;
+  return total == 264 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
