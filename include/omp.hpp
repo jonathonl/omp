@@ -54,9 +54,11 @@ namespace omp
       std::mutex mtx_;
       std::condition_variable cv_;
       std::function<void(std::size_t)> fn_;
+      std::size_t sleeping_counter_;
     public:
       thread_pool2(std::size_t num_threads = 0) :
-        states_(num_threads ? num_threads - 1 : default_num_threads - 1, state::sleep)
+        states_(num_threads ? num_threads - 1 : default_num_threads - 1, state::sleep),
+        sleeping_counter_(states_.size())
       {
         threads_.reserve(states_.size());
         for (std::size_t i = 0; i < states_.size(); ++i)
@@ -91,6 +93,7 @@ namespace omp
             if (states_[thread_idx] == state::running)
             {
               states_[thread_idx] = state::sleep;
+              ++sleeping_counter_;
               cv_.notify_all();
             }
             cv_.wait(lk, [this, thread_idx] { return states_[thread_idx] != state::sleep; });
@@ -114,6 +117,7 @@ namespace omp
         {
           std::unique_lock<std::mutex> lk(mtx_);
           std::fill(states_.begin(), states_.end(), state::run);
+          sleeping_counter_ = 0;
         }
         cv_.notify_all();
 
@@ -125,10 +129,7 @@ namespace omp
         {
           // Wait for child threads to complete.
           std::unique_lock<std::mutex> lk(mtx_);
-          if (std::count(states_.begin(), states_.end(), state::sleep) != states_.size()) // If I remember correctly, this check is redundant.
-          {
-            cv_.wait(lk, [this] { return std::count(states_.begin(), states_.end(), state::sleep) == states_.size(); });
-          }
+          cv_.wait(lk, [this] { return sleeping_counter_ == states_.size(); }); // std::count(states_.begin(), states_.end(), state::sleep) == states_.size(); });
         }
 
         fn_ = nullptr;
