@@ -27,6 +27,11 @@ namespace omp
     extern std::mutex global_mutex;
     extern const unsigned default_num_threads;
 
+    inline std::uint64_t ceil_divide(std::uint64_t x, std::uint64_t y)
+    {
+      return (x + y - 1) / y;
+    }
+
     class thread_pool
     {
     public:
@@ -69,6 +74,7 @@ namespace omp
 
       ~thread_pool2()
       {
+        std::cerr << "Destroying thread pool ..." << std::endl;
         {
           std::unique_lock<std::mutex> lk(mtx_);
           std::fill(states_.begin(), states_.end(), state::shutdown);
@@ -78,6 +84,7 @@ namespace omp
 
         for (auto& t : threads_)
           t.join();
+        std::cerr << "Done destroying thread pool ..." << std::endl;
       }
 
       std::size_t thread_count() const { return threads_.size() + 1; }
@@ -257,8 +264,9 @@ namespace omp
         beg_(begin),
         end_(end),
         total_elements_(std::distance(beg_, end_)),
-        chunk_size_(chunk_size ? chunk_size : static_cast<std::size_t>(total_elements_) / num_threads_)
+        chunk_size_(chunk_size ? chunk_size : ceil_divide(total_elements_, num_threads_))
       {
+        assert(chunk_size_ > 0);
 //        threads_.reserve(num_threads_ - 1);
 //        for (unsigned i = 0; i < (num_threads_ - 1); ++i)
 //          threads_.emplace_back(std::bind(&static_iterator_thread_pool::routine, this, i));
@@ -272,22 +280,24 @@ namespace omp
       const std::size_t num_threads_;
       const Iter beg_;
       const Iter end_;
-      long total_elements_;
-      const std::size_t chunk_size_;
+      std::int64_t total_elements_;
+      const std::int64_t chunk_size_;
     public:
       void operator()(std::size_t thread_index)
       {
-        auto cur = beg_;
-
-        std::advance(cur, thread_index * chunk_size_);
-        for (std::size_t index = (thread_index * chunk_size_); index < total_elements_; index += (chunk_size_ * num_threads_ - chunk_size_), std::advance(cur, chunk_size_ * num_threads_ - chunk_size_))
+        if (total_elements_ > 0)
         {
-          for (std::size_t chunk_offset = 0; chunk_offset < chunk_size_ && index < total_elements_; ++chunk_offset)
+          auto cur = beg_;
+
+          std::advance(cur, thread_index * chunk_size_);
+          for (std::size_t index = (thread_index * chunk_size_); index < total_elements_; index += (chunk_size_ * num_threads_ - chunk_size_), std::advance(cur, chunk_size_ * num_threads_ - chunk_size_))
           {
-            assert(cur != end_);
-            fn_(*cur, {thread_index,index}); //fn_ ? fn_(*it, i) : void();
-            ++cur;
-            ++index;
+            std::size_t end_off = index + chunk_size_;
+            for (; index < end_off && index < total_elements_; ++index,++cur)
+            {
+              assert(cur != end_);
+              fn_(*cur, {thread_index, index}); //fn_ ? fn_(*it, i) : void();
+            }
           }
         }
       }
