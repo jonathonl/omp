@@ -74,7 +74,7 @@ namespace omp
 
       ~thread_pool2()
       {
-        std::cerr << "Destroying thread pool ..." << std::endl;
+        //std::cerr << "Destroying thread pool ..." << std::endl;
         {
           std::unique_lock<std::mutex> lk(mtx_);
           std::fill(states_.begin(), states_.end(), state::shutdown);
@@ -84,7 +84,7 @@ namespace omp
 
         for (auto& t : threads_)
           t.join();
-        std::cerr << "Done destroying thread pool ..." << std::endl;
+        //std::cerr << "Done destroying thread pool ..." << std::endl;
       }
 
       std::size_t thread_count() const { return threads_.size() + 1; }
