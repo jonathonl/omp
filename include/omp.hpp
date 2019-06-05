@@ -266,7 +266,7 @@ namespace omp
         total_elements_(std::distance(beg_, end_)),
         chunk_size_(chunk_size ? chunk_size : ceil_divide(total_elements_, num_threads_))
       {
-        assert(chunk_size_ > 0);
+        //assert(chunk_size_ > 0);
 //        threads_.reserve(num_threads_ - 1);
 //        for (unsigned i = 0; i < (num_threads_ - 1); ++i)
 //          threads_.emplace_back(std::bind(&static_iterator_thread_pool::routine, this, i));
