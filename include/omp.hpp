@@ -11,6 +11,7 @@
 #include <cassert>
 #include <iterator>
 #include <algorithm>
+#include <iostream>
 
 namespace omp
 {
