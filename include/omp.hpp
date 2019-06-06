@@ -74,7 +74,7 @@ namespace omp
 
       ~thread_pool2()
       {
-        //std::cerr << "Destroying thread pool ..." << std::endl;
+        std::cerr << "Destroying thread pool ..." << std::endl;
         {
           std::unique_lock<std::mutex> lk(mtx_);
           std::fill(states_.begin(), states_.end(), state::shutdown);
@@ -84,7 +84,7 @@ namespace omp
 
         for (auto& t : threads_)
           t.join();
-        //std::cerr << "Done destroying thread pool ..." << std::endl;
+        std::cerr << "Done destroying thread pool ..." << std::endl;
       }
 
       std::size_t thread_count() const { return threads_.size() + 1; }
@@ -289,8 +289,12 @@ namespace omp
         {
           auto cur = beg_;
 
+          std::size_t index = (thread_index * chunk_size_);
+          if (index >= total_elements_)
+            return;
+
           std::advance(cur, thread_index * chunk_size_);
-          for (std::size_t index = (thread_index * chunk_size_); index < total_elements_; index += (chunk_size_ * num_threads_ - chunk_size_), std::advance(cur, chunk_size_ * num_threads_ - chunk_size_))
+          for ( ; index < total_elements_; )
           {
             std::size_t end_off = index + chunk_size_;
             for (; index < end_off && index < total_elements_; ++index,++cur)
@@ -298,6 +302,11 @@ namespace omp
               assert(cur != end_);
               fn_(*cur, {thread_index, index}); //fn_ ? fn_(*it, i) : void();
             }
+
+            index += (chunk_size_ * num_threads_ - chunk_size_);
+            if (index >= total_elements_)
+              break;
+            std::advance(cur, chunk_size_ * num_threads_ - chunk_size_);
           }
         }
       }
