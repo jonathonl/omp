@@ -7,9 +7,11 @@
 #include <thread>
 #include <vector>
 #include <mutex>
+#include <condition_variable>
 #include <cassert>
 #include <iterator>
-
+#include <algorithm>
+#include <iostream>
 
 namespace omp
 {
@@ -25,6 +27,11 @@ namespace omp
   {
     extern std::mutex global_mutex;
     extern const unsigned default_num_threads;
+
+    inline std::uint64_t ceil_divide(std::uint64_t x, std::uint64_t y)
+    {
+      return (x + y - 1) / y;
+    }
 
     class thread_pool
     {
@@ -42,6 +49,97 @@ namespace omp
     private:
       const std::size_t num_threads_;
       std::vector<std::thread> threads_;
+    };
+
+    class thread_pool2
+    {
+    private:
+      enum class state { shutdown = 0, run, running, sleep };
+      std::vector<std::thread> threads_;
+      std::vector<state> states_;
+      std::mutex mtx_;
+      std::condition_variable cv_;
+      std::function<void(std::size_t)> fn_;
+      std::size_t sleeping_counter_;
+    public:
+      thread_pool2(std::size_t num_threads = 0) :
+        states_(num_threads ? num_threads - 1 : default_num_threads - 1, state::sleep),
+        sleeping_counter_(states_.size())
+      {
+        threads_.reserve(states_.size());
+        for (std::size_t i = 0; i < states_.size(); ++i)
+        {
+          threads_.emplace_back(std::bind(&thread_pool2::routine, this, i));
+        }
+      }
+
+      ~thread_pool2()
+      {
+        {
+          std::unique_lock<std::mutex> lk(mtx_);
+          std::fill(states_.begin(), states_.end(), state::shutdown);
+        }
+
+        cv_.notify_all();
+
+        for (auto& t : threads_)
+          t.join();
+      }
+
+      std::size_t thread_count() const { return threads_.size() + 1; }
+
+      void routine(std::size_t thread_idx)
+      {
+        while (true)
+        {
+          {
+            std::unique_lock<std::mutex> lk(mtx_);
+            if (states_[thread_idx] == state::shutdown)
+              break;
+            if (states_[thread_idx] == state::running)
+            {
+              states_[thread_idx] = state::sleep;
+              ++sleeping_counter_;
+              cv_.notify_all();
+            }
+            cv_.wait(lk, [this, thread_idx] { return states_[thread_idx] != state::sleep; });
+            if (states_[thread_idx] == state::shutdown)
+              break;
+            states_[thread_idx] = state::running;
+          }
+
+          if (fn_)
+          {
+            fn_(thread_idx);
+          }
+        }
+      }
+
+      //template <typename Fn>
+      void operator()(std::function<void(std::size_t)>&& fn)
+      {
+        fn_ = std::move(fn);
+
+        {
+          std::unique_lock<std::mutex> lk(mtx_);
+          std::fill(states_.begin(), states_.end(), state::run);
+          sleeping_counter_ = 0;
+        }
+        cv_.notify_all();
+
+        if (fn_)
+        {
+          fn_(states_.size());
+        }
+
+        {
+          // Wait for child threads to complete.
+          std::unique_lock<std::mutex> lk(mtx_);
+          cv_.wait(lk, [this] { return sleeping_counter_ == states_.size(); }); // std::count(states_.begin(), states_.end(), state::sleep) == states_.size(); });
+        }
+
+        fn_ = nullptr;
+      }
     };
 
     template<typename Iter>
@@ -136,7 +234,7 @@ namespace omp
       const Iter end_;
       long total_elements_;
       const std::size_t chunk_size_;
-
+    public:
       void routine(std::size_t thread_index)
       {
         auto cur = beg_;
@@ -150,6 +248,64 @@ namespace omp
             fn_(*cur, {thread_index,index}); //fn_ ? fn_(*it, i) : void();
             ++cur;
             ++index;
+          }
+        }
+      }
+    };
+
+    template<typename Iter>
+    class static_iterator_functor
+    {
+    public:
+      static_iterator_functor(std::size_t chunk_size, Iter begin, Iter end, const std::function<void(typename Iter::reference,const iteration_context&)>& fn, unsigned num_threads) :
+        fn_(fn),
+        num_threads_(num_threads ? num_threads : default_num_threads),
+        beg_(begin),
+        end_(end),
+        total_elements_(std::distance(beg_, end_)),
+        chunk_size_(chunk_size ? chunk_size : ceil_divide(total_elements_, num_threads_))
+      {
+        //assert(chunk_size_ > 0);
+//        threads_.reserve(num_threads_ - 1);
+//        for (unsigned i = 0; i < (num_threads_ - 1); ++i)
+//          threads_.emplace_back(std::bind(&static_iterator_thread_pool::routine, this, i));
+//        this->routine(num_threads_ - 1);
+//
+//        for (auto it = threads_.begin(); it != threads_.end(); ++it)
+//          it->join();
+      }
+    private:
+      std::function<void(typename Iter::reference, const omp::iteration_context&)> fn_;
+      const std::size_t num_threads_;
+      const Iter beg_;
+      const Iter end_;
+      std::int64_t total_elements_;
+      const std::int64_t chunk_size_;
+    public:
+      void operator()(std::size_t thread_index)
+      {
+        if (total_elements_ > 0)
+        {
+          auto cur = beg_;
+
+          std::size_t index = (thread_index * chunk_size_);
+          if (index >= total_elements_)
+            return;
+
+          std::advance(cur, thread_index * chunk_size_);
+          for ( ; index < total_elements_; )
+          {
+            std::size_t end_off = index + chunk_size_;
+            for (; index < end_off && index < total_elements_; ++index,++cur)
+            {
+              assert(cur != end_);
+              fn_(*cur, {thread_index, index}); //fn_ ? fn_(*it, i) : void();
+            }
+
+            index += (chunk_size_ * num_threads_ - chunk_size_);
+            if (index >= total_elements_)
+              break;
+            std::advance(cur, chunk_size_ * num_threads_ - chunk_size_);
           }
         }
       }
@@ -243,6 +399,13 @@ namespace omp
   void parallel_for(const static_schedule& sched, Iterator begin, Iterator end, const std::function<void(typename Iterator::reference, const iteration_context&)>& operation, unsigned thread_cnt = 0)
   {
     internal::static_iterator_thread_pool<Iterator> pool(sched.chunk_size(), begin, end, operation, thread_cnt);
+  }
+
+  template <typename Iterator>
+  void parallel_for_exp(const static_schedule& sched, Iterator begin, Iterator end, const std::function<void(typename Iterator::reference, const iteration_context&)>& operation, internal::thread_pool2& tp)
+  {
+
+    tp(internal::static_iterator_functor<Iterator>(sched.chunk_size(), begin, end, operation, tp.thread_count())); //std::bind(&internal::static_iterator_functor<Iterator>::routine, &static_fn, std::placeholders::_1));
   }
 
   template <typename Iterator>
